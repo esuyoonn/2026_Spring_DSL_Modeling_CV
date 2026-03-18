@@ -246,8 +246,8 @@ def _build_video_reliability(video_rows):
     composites = []
     per_video = []
     for row in video_rows:
-        pose = float(row["metric_1 (WPM/Pose)"])
-        expr = float(row["metric_2 (Energy/Expr)"])
+        pose = float(row["pose_score"])
+        expr = float(row["expression_score"])
         composite = (pose + expr) / 2.0
         composites.append(composite)
         per_video.append(
@@ -283,24 +283,34 @@ def run_all_tests(args):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Audio ─────────────────────────────────────────────────────────────
+    audio_rows = []
     audio_test_files = sorted(audio_dir.glob("*.wav"))
     print(f"--- Starting Headless Audio Evaluation ({len(audio_test_files)} files) ---")
     for p in audio_test_files:
         score, wpm, energy, pitch = evaluator.evaluate_audio(p)
         if score is None:
             continue
-        results.append(
+        audio_rows.append(
             {
-                "type": "AUDIO",
                 "filename": p.name,
                 "overall_score": f"{score:.1f}",
-                "metric_1 (WPM/Pose)": f"{wpm:.1f}",
-                "metric_2 (Energy/Expr)": f"{energy:.4f}",
-                "metric_3 (Pitch)": f"{pitch:.1f}",
+                "wpm": f"{wpm:.1f}",
+                "energy_rms": f"{energy:.4f}",
+                "pitch_std_hz": f"{pitch:.1f}",
             }
         )
-        print(f"Evaluated {p.name}: Score={score:.1f} | WPM={wpm:.1f}")
+        print(f"Evaluated {p.name}: Score={score:.1f} | WPM={wpm:.1f} | Energy={energy:.4f} | Pitch={pitch:.1f}")
 
+    audio_csv_path = output_dir / "results_audio.csv"
+    audio_csv_fields = ["filename", "overall_score", "wpm", "energy_rms", "pitch_std_hz"]
+    with audio_csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=audio_csv_fields)
+        writer.writeheader()
+        writer.writerows(audio_rows)
+
+    # ── Video ─────────────────────────────────────────────────────────────
+    video_rows = []
     video_test_files = sorted(video_dir.glob("*.mp4"))
     print(f"\n--- Starting Headless Video Evaluation ({len(video_test_files)} files) ---")
     for p in video_test_files:
@@ -308,32 +318,37 @@ def run_all_tests(args):
         if s_pose is None or s_expr is None:
             print(f"[WARN] Failed to open video: {p.name}")
             continue
-        results.append(
+        video_rows.append(
             {
-                "type": "VIDEO",
                 "filename": p.name,
-                "overall_score": "N/A",
-                "metric_1 (WPM/Pose)": f"{s_pose:.1f}",
-                "metric_2 (Energy/Expr)": f"{s_expr:.1f}",
-                "metric_3 (Pitch)": "N/A",
+                "pose_score": f"{s_pose:.1f}",
+                "expression_score": f"{s_expr:.1f}",
             }
         )
         print(f"Evaluated {p.name}: Pose={s_pose:.1f} | Expr={s_expr:.1f}")
 
-    detailed_csv_path = output_dir / "results.csv"
-    if results:
-        keys = list(results[0].keys())
-        with detailed_csv_path.open("w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader()
-            writer.writerows(results)
-    else:
-        with detailed_csv_path.open("w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["type", "filename", "overall_score", "metric_1 (WPM/Pose)", "metric_2 (Energy/Expr)", "metric_3 (Pitch)"])
+    video_csv_path = output_dir / "results_video.csv"
+    video_csv_fields = ["filename", "pose_score", "expression_score"]
+    with video_csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=video_csv_fields)
+        writer.writeheader()
+        writer.writerows(video_rows)
 
-    audio_rows = [r for r in results if r["type"] == "AUDIO"]
-    video_rows = [r for r in results if r["type"] == "VIDEO"]
+    # Keep a combined results.csv for backward-compatibility / reliability logic
+    combined_rows = []
+    for r in audio_rows:
+        combined_rows.append({"type": "AUDIO", "filename": r["filename"],
+                               "overall_score": r["overall_score"],
+                               "metric_1 (WPM/Pose)": r["wpm"],
+                               "metric_2 (Energy/Expr)": r["energy_rms"],
+                               "metric_3 (Pitch)": r["pitch_std_hz"]})
+    for r in video_rows:
+        combined_rows.append({"type": "VIDEO", "filename": r["filename"],
+                               "overall_score": "N/A",
+                               "metric_1 (WPM/Pose)": r["pose_score"],
+                               "metric_2 (Energy/Expr)": r["expression_score"],
+                               "metric_3 (Pitch)": "N/A"})
+
     audio_reliability_rows, audio_reliability_overall = _build_audio_reliability(audio_rows)
     video_reliability_rows, video_reliability_overall = _build_video_reliability(video_rows)
     reliability_rows = audio_reliability_rows + video_reliability_rows
@@ -365,9 +380,10 @@ def run_all_tests(args):
     reliability_json_path = output_dir / "reliability_summary.json"
     reliability_json_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
 
-    print(f"\nDetailed results: {detailed_csv_path.relative_to(REPO_ROOT)}")
-    print(f"Reliability CSV: {reliability_csv_path.relative_to(REPO_ROOT)}")
-    print(f"Reliability JSON: {reliability_json_path.relative_to(REPO_ROOT)}")
+    print(f"\nAudio results:      {audio_csv_path.relative_to(REPO_ROOT)}")
+    print(f"Video results:      {video_csv_path.relative_to(REPO_ROOT)}")
+    print(f"Reliability CSV:    {reliability_csv_path.relative_to(REPO_ROOT)}")
+    print(f"Reliability JSON:   {reliability_json_path.relative_to(REPO_ROOT)}")
     print("Done.")
 
 
