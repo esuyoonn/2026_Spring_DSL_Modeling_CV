@@ -16,21 +16,21 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR" || { echo "ERROR: cannot cd to $SCRIPT_DIR"; exit 1; }
 
-# ── Activate Environment (Active -> Local Venv -> Conda) ───────────────
-if [ -n "$VIRTUAL_ENV" ] && [ -f "$VIRTUAL_ENV/bin/python" ]; then
-  # 1. Use currently active standard venv
-  echo "Using active Virtual Environment: $VIRTUAL_ENV"
-  PYTHON="$VIRTUAL_ENV/bin/python"
-elif [ -n "$CONDA_PREFIX" ] && [ -f "$CONDA_PREFIX/bin/python" ]; then
-  # 2. Use currently active Conda environment
-  echo "Using active Conda Environment: $CONDA_PREFIX"
-  PYTHON="$CONDA_PREFIX/bin/python"
-elif [ -d "$SCRIPT_DIR/venv" ] && [ -f "$SCRIPT_DIR/venv/bin/python" ]; then
-  # 3. Use local venv if it exists in the project folder
+# ── Activate Environment (Local Venv -> Active -> Conda Fallback) ──────
+if [ -d "$SCRIPT_DIR/venv" ] && [ -f "$SCRIPT_DIR/venv/bin/python" ]; then
+  # 1. Highest Priority: Use local venv if it exists in the project folder
   export VIRTUAL_ENV="$SCRIPT_DIR/venv"
   export PATH="$VIRTUAL_ENV/bin:$PATH"
   PYTHON="$VIRTUAL_ENV/bin/python"
   echo "Using local venv environment..."
+elif [ -n "$VIRTUAL_ENV" ] && [ -f "$VIRTUAL_ENV/bin/python" ]; then
+  # 2. Use currently active standard venv
+  echo "Using active Virtual Environment: $VIRTUAL_ENV"
+  PYTHON="$VIRTUAL_ENV/bin/python"
+elif [ -n "$CONDA_PREFIX" ] && [ -f "$CONDA_PREFIX/bin/python" ] && [ "$(basename "$CONDA_PREFIX")" != "base" ]; then
+  # 3. Use currently active Conda environment (ignore 'base' to prevent accidental hijacks)
+  echo "Using active Conda Environment: $CONDA_PREFIX"
+  PYTHON="$CONDA_PREFIX/bin/python"
 else
   # 4. Fallback to Conda 'dslcv2' environment (create if necessary)
   CONDA_BASE="$(conda info --base 2>/dev/null || echo /opt/anaconda3)"
